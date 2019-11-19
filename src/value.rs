@@ -29,6 +29,15 @@ impl Value {
         }
     }
 
+    pub fn equals(&self, value: &Value) -> bool {
+        match (self, value) {
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            _ => false,
+        }
+    }
+
     pub fn is_falsey(&self) -> Value {
         let result = match self {
             Value::Bool(x) => !x,

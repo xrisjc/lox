@@ -27,6 +27,10 @@ impl ValueStack {
         self.stack.push(Value::Number(x));
     }
 
+    pub fn push_bool(&mut self, x: bool) {
+        self.stack.push(Value::Bool(x));
+    }
+
     pub fn pop(&mut self) -> Value {
         match self.stack.pop() {
             Some(x) => x,
@@ -94,6 +98,23 @@ fn run(chunk: &Chunk) -> Result<(), InterpretError> {
             OP_NIL => stack.push(Value::Nil),
             OP_TRUE => stack.push(Value::Bool(true)),
             OP_FALSE => stack.push(Value::Bool(false)),
+
+            OP_EQUAL => {
+                let b = stack.pop();
+                let a = stack.pop();
+                stack.push_bool(a.equals(&b));
+            }
+
+            OP_GREATER if stack.is_number(0) && stack.is_number(1) => {
+                let b = stack.pop_f64();
+                let a = stack.pop_f64();
+                stack.push_bool(a > b);
+            }
+            OP_LESS if stack.is_number(0) && stack.is_number(1) => {
+                let b = stack.pop_f64();
+                let a = stack.pop_f64();
+                stack.push_bool(a < b);
+            }
 
             OP_ADD if stack.is_number(0) && stack.is_number(1) => {
                 let b = stack.pop_f64();

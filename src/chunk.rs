@@ -21,15 +21,11 @@ impl Chunk {
         self.lines.push(line);
     }
 
-    fn emit_bytes(&mut self, byte_1: u8, byte_2: u8, line: usize) {
-        self.emit(byte_1, line);
-        self.emit(byte_2, line);
-    }
-
     pub fn emit_constant(&mut self, value: Value, line: usize) -> bool {
         if self.constants.len() < std::u8::MAX as usize {
             self.constants.push(value);
-            self.emit_bytes(OP_CONSTANT, self.constants.len() as u8 - 1, line);
+            self.emit(OP_CONSTANT, line);
+            self.emit(self.constants.len() as u8 - 1, line);
 
             true
         } else {
@@ -58,6 +54,9 @@ impl Chunk {
             OP_NIL => simple_instruction("OP_NIL", offset),
             OP_TRUE => simple_instruction("OP_TRUE", offset),
             OP_FALSE => simple_instruction("OP_FALSE", offset),
+            OP_EQUAL => simple_instruction("OP_EQUAL", offset),
+            OP_GREATER => simple_instruction("OP_GREATER", offset),
+            OP_LESS => simple_instruction("OP_LESS", offset),
             OP_ADD => simple_instruction("OP_ADD", offset),
             OP_SUBTRACT => simple_instruction("OP_SUBTRACT", offset),
             OP_MULTIPLY => simple_instruction("OP_MULTIPLY", offset),

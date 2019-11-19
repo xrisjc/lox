@@ -121,6 +121,33 @@ impl<'a> Parser<'a> {
 
     fn infix_rule(&mut self, chunk: &mut Chunk) {
         match self.previous {
+            Token { lexeme: BangEqual, line } => {
+                self.parse(Equality, chunk);
+                chunk.emit(OP_EQUAL, line);
+                chunk.emit(OP_NOT, line);
+            }
+            Token { lexeme: Equal, line } => {
+                self.parse(Equality, chunk);
+                chunk.emit(OP_EQUAL, line);
+            }
+            Token { lexeme: Greater, line } => {
+                self.parse(Comparison, chunk);
+                chunk.emit(OP_GREATER, line);
+            }
+            Token { lexeme: GreaterEqual, line } => {
+                self.parse(Comparison, chunk);
+                chunk.emit(OP_LESS, line);
+                chunk.emit(OP_NOT, line);
+            }
+            Token { lexeme: Less, line } => {
+                self.parse(Comparison, chunk);
+                chunk.emit(OP_LESS, line);
+            }
+            Token { lexeme: LessEqual, line } => {
+                self.parse(Comparison, chunk);
+                chunk.emit(OP_GREATER, line);
+                chunk.emit(OP_NOT, line);
+            }
             Token { lexeme: Plus, line } => {
                 self.parse(Factor, chunk);
                 chunk.emit(OP_ADD, line);
