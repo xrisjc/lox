@@ -73,7 +73,7 @@ impl Chunk {
 
     fn constant_instruction(&self, name: &str, offset: usize) -> usize {
         let constant = self.code[offset + 1];
-        let value = self.constants[constant as usize];
+        let value = &self.constants[constant as usize];
         println!("{:16} {:04} {}", name, constant, value);
         offset + 2
     }

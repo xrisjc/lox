@@ -1,34 +1,38 @@
 use std::mem;
 
 use crate::chunk::Chunk;
+use crate::object::{Obj, ObjValue};
 use crate::op::*;
-use crate::scanner::{Lexeme, Token, Scanner};
-use crate::scanner::Lexeme::*;
+use crate::scanner::{TokenTag, Token, Scanner};
+use crate::scanner::TokenTag::*;
 use crate::value::Value;
 
 use Precedence::*;
+use std::rc::Rc;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Precedence {
     None,
     Assignment,
-    Or,
-    And,
+    //Or,
+    //And,
     Equality,
     Comparison,
     Term,
     Factor,
     Unary,
-    Call,
-    Primary,
+    //Call,
+    //Primary,
 }
 
 fn precedence_of(token: &Token) -> Precedence {
     use Precedence::*;
     
-    match token.lexeme {
+    match token.tag {
         Minus | Plus => Term,
         Slash | Star => Factor,
+        BangEqual | EqualEqual => Equality, 
+        Greater | GreaterEqual | Less | LessEqual => Comparison,
         _ => None,
     }
 }
@@ -45,25 +49,30 @@ impl<'a> Parser<'a> {
     fn new(source: &str) -> Parser {
         Parser {
             scanner: Scanner::new(source),
-            current: Token { lexeme: Eof, line: 0 },
-            previous: Token { lexeme: Eof, line: 0 },
+            current: Token { tag: Eof, lexeme: String::from(""), line: 0 },
+            previous: Token { tag: Eof, lexeme: String::from(""), line: 0 },
             had_error: false,
             panic_mode: false,
         }
     }
 
+    fn error_at(&mut self, token: &Token, message: &str) {
+        token.error(message);
+        self.had_error = true;
+    }
+
     fn advance(&mut self) {
         loop {
-            match self.scanner.next_token() {
-                Token { lexeme: Error(_), .. } if self.panic_mode => {
+            let token = self.scanner.next_token();
+            match token.tag {
+                Error if self.panic_mode => {
                     // Don't report errors in panic mode.
                 }
-                Token { lexeme: Error(msg), line } => {
+                Error => {
                     self.panic_mode = true;
-                    self.had_error = true;
-                    eprintln!("[line {}] Error: {}", line, msg);
+                    self.error_at(&token, "error advancing");
                 }
-                token => {
+                _ => {
                     self.previous = mem::replace(&mut self.current, token);
                     break;
                 }
@@ -71,102 +80,130 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn consume(&mut self, lexeme: Lexeme, msg: &str) {
-        if self.current.lexeme == lexeme {
+    fn consume(&mut self, tag: TokenTag, msg: &str) {
+        if self.current.tag == tag {
             self.advance();
         } else if self.panic_mode {
             // Don't report errors in panic mode.
         } else {
             self.panic_mode = true;
-            self.had_error = true;
-            eprintln!("[line {}] Error: {}", self.current.line, msg);
+            self.error_at(&self.current.clone(), msg);
         }
     }
 
     fn prefix_rule(&mut self, chunk: &mut Chunk) {
-        match self.previous {
-            Token { lexeme: False, line } => {
-                chunk.emit(OP_FALSE, line);
+        match self.previous.tag {
+            False => {
+                chunk.emit(OP_FALSE, self.previous.line);
             }
-            Token { lexeme: Nil, line } => {
-                chunk.emit(OP_NIL, line);
+            Nil => {
+                chunk.emit(OP_NIL, self.previous.line);
             }
-            Token { lexeme: True, line } => {
-                chunk.emit(OP_TRUE, line);
+            True => {
+                chunk.emit(OP_TRUE, self.previous.line);
             }
-            Token { lexeme: Number(x), line } => {
-                if !chunk.emit_constant(Value::Number(x), line) {
-                    // TODO: Original called an error function here.
-                    panic!("Too many constants in one chunk.");
+            StringLiteral => {
+                // The string is in the lexeme. We need to trim the leading and
+                // trailing quotes.
+                let s = &self.previous.lexeme;
+                let s = &s[0..s.len()];
+                
+                // Create a string and wrap it up in an Obj.
+                let s = String::from(s);
+                let s = ObjValue::String(s);
+                let s = Obj { value: s };
+                let s = Rc::new(s);
+                let s = Value::Obj(s);
+
+                if !chunk.emit_constant(s, self.previous.line) {
+                    self.error_at(&self.previous.clone(), "Too many constants in one chunk.");
                 }
             }
-            Token { lexeme: LeftParen, .. } => {
+            Number => {
+                let x = match self.previous.lexeme.parse() {
+                    Ok(x) => Value::Number(x),
+                    Err(_) => {
+                        self.error_at(&self.previous.clone(), "cannot be converted to a number");
+                        return;
+                    }
+                };
+
+                if !chunk.emit_constant(x, self.previous.line) {
+                    self.error_at(&self.previous.clone(), "Too many constants in one chunk.");
+                }
+            }
+            LeftParen => {
                 self.parse(Assignment, chunk);
                 self.consume(RightParen, "Expect ')' after expression.");
             }
-            Token { lexeme: Minus, line } => {
+            Minus => {
                 self.parse(Factor, chunk);
-                chunk.emit(OP_NEGATE, line);
+                chunk.emit(OP_NEGATE, self.previous.line);
             }
-            Token { lexeme: Bang, line } => {
+            Bang => {
                 self.parse(Factor, chunk);
-                chunk.emit(OP_NOT, line);
+                chunk.emit(OP_NOT, self.previous.line);
             }
-            Token { ref lexeme, .. } => {
-                // TODO: Original called an error function here.
-                panic!("unexpected token {:?}", lexeme);
+            _ => {
+                self.panic_mode = true;
+                self.error_at(&self.previous.clone(), "unexpected token");
             }
         }
     }
 
     fn infix_rule(&mut self, chunk: &mut Chunk) {
-        match self.previous {
-            Token { lexeme: BangEqual, line } => {
+        let line = self.previous.line;
+
+        match self.previous.tag {
+            BangEqual => {
                 self.parse(Equality, chunk);
                 chunk.emit(OP_EQUAL, line);
                 chunk.emit(OP_NOT, line);
             }
-            Token { lexeme: Equal, line } => {
+            Equal => {
                 self.parse(Equality, chunk);
                 chunk.emit(OP_EQUAL, line);
             }
-            Token { lexeme: Greater, line } => {
+            EqualEqual => {
+                self.parse(Equality, chunk);
+                chunk.emit(OP_EQUAL, line);
+            }
+            Greater => {
                 self.parse(Comparison, chunk);
                 chunk.emit(OP_GREATER, line);
             }
-            Token { lexeme: GreaterEqual, line } => {
+            GreaterEqual => {
                 self.parse(Comparison, chunk);
                 chunk.emit(OP_LESS, line);
                 chunk.emit(OP_NOT, line);
             }
-            Token { lexeme: Less, line } => {
+            Less => {
                 self.parse(Comparison, chunk);
                 chunk.emit(OP_LESS, line);
             }
-            Token { lexeme: LessEqual, line } => {
+            LessEqual => {
                 self.parse(Comparison, chunk);
                 chunk.emit(OP_GREATER, line);
                 chunk.emit(OP_NOT, line);
             }
-            Token { lexeme: Plus, line } => {
+            Plus => {
                 self.parse(Factor, chunk);
                 chunk.emit(OP_ADD, line);
             }
-            Token { lexeme: Minus, line } => {
+            Minus => {
                 self.parse(Factor, chunk);
                 chunk.emit(OP_SUBTRACT, line);
             }
-            Token { lexeme: Star, line } => {
+            Star => {
                 self.parse(Unary, chunk);
                 chunk.emit(OP_MULTIPLY, line);
             }
-            Token { lexeme: Slash, line } => {
+            Slash => {
                 self.parse(Unary, chunk);
                 chunk.emit(OP_DIVIDE, line);
             }
             _ => {
-                // TODO: This is supposedly unreachable.
-                panic!("Expected expression");
+                self.error_at(&self.previous.clone(), "expected operator");
             }
         }
     }

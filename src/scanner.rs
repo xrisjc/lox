@@ -1,8 +1,8 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
-#[derive(Debug, PartialEq)]
-pub enum Lexeme {
+#[derive(Debug, PartialEq, Clone)]
+pub enum TokenTag {
     // Single-character tokens.
     LeftParen,
     RightParen,
@@ -27,9 +27,9 @@ pub enum Lexeme {
     LessEqual,
 
     // Literals.
-    Identifier(String),
-    StringLiteral(String),
-    Number(f64),
+    Identifier,
+    StringLiteral,
+    Number,
 
     // Keywords.
     And,
@@ -49,14 +49,29 @@ pub enum Lexeme {
     Var,
     While,
 
-    Error(String),
+    Error,
     Eof,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
-    pub lexeme: Lexeme,
+    pub tag: TokenTag,
+    pub lexeme: String,
     pub line: usize,
+}
+
+impl Token {
+    pub fn error(&self, message: &str) {
+        eprint!("[line {}] Error", self.line);
+
+        match self.tag {
+            TokenTag::Eof => eprint!(" at end"),
+            TokenTag::Error => { },
+            _ => eprint!(" at '{}'", self.lexeme),
+        }
+
+        eprintln!(": {}", message);
+    }
 }
 
 
@@ -95,12 +110,16 @@ impl<'a> Scanner<'a> {
         self.next = self.itr.peek().map(|&c| c);
     }
 
-    fn make_token(&self, lexem: Lexeme) -> Token {
-        Token { lexeme: lexem, line: self.line }
+    fn make_token(&self, tag: TokenTag, lexeme: String) -> Token {
+        Token { tag: tag, lexeme: lexeme, line: self.line }
+    }
+
+    fn make_token_str(&self, tag: TokenTag, lexeme: &str) -> Token {
+        self.make_token(tag, String::from(lexeme))
     }
 
     pub fn next_token(&mut self) -> Token {
-        use Lexeme::*;
+        use TokenTag::*;
 
         // Skip whitespace and comments.
         loop {
@@ -123,7 +142,7 @@ impl<'a> Scanner<'a> {
 
         // Handle end of code.
         if self.current.is_none() {
-            return self.make_token(Eof);
+            return self.make_token_str(Eof, "");
         }
 
         // Handle a string literal.
@@ -141,14 +160,13 @@ impl<'a> Scanner<'a> {
             }
 
             if self.current.is_none() {
-                let msg = "unterminated string".to_owned();
-                return self.make_token(Error(msg));
+                return self.make_token_str(Error, "unterminated string");
             }
 
             // Skip past the closing quote.
             self.advance();
 
-            return self.make_token(StringLiteral(s));
+            return self.make_token(StringLiteral, s);
         }
 
         // Handle identifiers and keywords.
@@ -159,7 +177,7 @@ impl<'a> Scanner<'a> {
                 self.advance();
             }
 
-            let lexem = match s.as_ref() {
+            let tag = match s.as_ref() {
                 "and" => And,
                 "class" => Class,
                 "else" => Else,
@@ -176,10 +194,10 @@ impl<'a> Scanner<'a> {
                 "true" => True,
                 "var" => Var,
                 "while" => While,
-                _ => Identifier(s),
+                _ => Identifier,
             };
 
-            return self.make_token(lexem);
+            return self.make_token(tag, s);
         }
 
         // Handle a number literal.
@@ -202,58 +220,52 @@ impl<'a> Scanner<'a> {
                 }
             }
 
-            return match s.parse() {
-                Ok(x) => self.make_token(Number(x)),
-                Err(_) => {
-                    let msg = format!("'{}' cannot be converted to a number", s);
-                    self.make_token(Error(msg))
-                }
-            };
+            return self.make_token(Number, s);
         }
 
         // Handle operators.
-        let lexeme = match self.current.unwrap() {
+        let token = match self.current.unwrap() {
             '!' if self.next.map_or(false, |c| c == '=') => {
                 self.advance();
-                BangEqual
+                self.make_token_str(BangEqual, "!=")
             }
             '=' if self.next.map_or(false, |c| c == '=') => {
                 self.advance();
-                EqualEqual
+                self.make_token_str(EqualEqual, "==")
             }
             '<' if self.next.map_or(false, |c| c == '=') => {
                 self.advance();
-                LessEqual
+                self.make_token_str(LessEqual, "<=")
             }
             '>' if self.next.map_or(false, |c| c == '=') => {
                 self.advance();
-                GreaterEqual
+                self.make_token_str(GreaterEqual, ">=")
             }
-            '(' => LeftParen,
-            ')' => RightParen,
-            '{' => LeftBrace,
-            '}' => RightBrace,
-            ';' => Semicolon,
-            ',' => Comma,
-            '.' => Dot,
-            '-' => Minus,
-            '+' => Plus,
-            '/' => Slash,
-            '*' => Star,
-            '!' => Bang,
-            '=' => Equal,
-            '<' => Less,
-            '>' => Greater,
+            '(' => self.make_token_str(LeftParen, "("),
+            ')' => self.make_token_str(RightParen, ")"),
+            '{' => self.make_token_str(LeftBrace, "{"),
+            '}' => self.make_token_str(RightBrace, "}"),
+            ';' => self.make_token_str(Semicolon, ";"),
+            ',' => self.make_token_str(Comma, ","),
+            '.' => self.make_token_str(Dot, "."),
+            '-' => self.make_token_str(Minus, "-"),
+            '+' => self.make_token_str(Plus, "+"),
+            '/' => self.make_token_str(Slash, "/"),
+            '*' => self.make_token_str(Star, "*"),
+            '!' => self.make_token_str(Bang, "!"),
+            '=' => self.make_token_str(Equal, "="),
+            '<' => self.make_token_str(Less, "<"),
+            '>' => self.make_token_str(Greater, ">"),
             _ => {
                 let msg = format!("unexpected character '{:?}'", self.current);
                 self.advance();
-                return self.make_token(Error(msg));
+                self.make_token(Error, msg)
             }
         };
 
         // Advance past the last character in the operator.
         self.advance();
 
-        return self.make_token(lexeme);
+        return token;
     }
 }

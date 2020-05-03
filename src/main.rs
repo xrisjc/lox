@@ -1,5 +1,6 @@
 mod chunk;
 mod compiler;
+mod object;
 mod op;
 mod scanner;
 mod value;
@@ -7,6 +8,7 @@ mod vm;
 
 use crate::vm::InterpretError;
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::io::{self, Write};
 use std::process;
@@ -25,22 +27,23 @@ fn main() {
 }
 
 fn repl() {
-    println!("Welcome to lox!");
-    loop {
-        print!("> ");
+    fn read_line(prompt: &str) -> Result<String, Box<dyn Error>> {
+        print!("{} ", prompt);
 
         // Have to flush or the prompt never gets printed.
         io::stdout().flush().unwrap();
-
         let mut buffer = String::new();
-        let result = io::stdin().read_line(&mut buffer);
-        match result {
-            Ok(_) => {
-                vm::interpret(&buffer);
-            }
-            Err(_) => {
-                println!("");
-            }
+        let _result = io::stdin().read_line(&mut buffer)?;
+
+        Ok(buffer)
+    }
+
+    println!("Welcome to lox!");
+    loop {
+        let result = read_line(">").map(|line| vm::interpret(&line));
+
+        if result.is_err() {
+            eprintln!("{}", result.err().unwrap());
         }
     }
 }
