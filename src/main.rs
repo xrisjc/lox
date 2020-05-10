@@ -7,6 +7,7 @@ mod value;
 mod vm;
 
 use crate::vm::InterpretError;
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -39,8 +40,9 @@ fn repl() {
     }
 
     println!("Welcome to lox!");
+    let mut globals = HashMap::new();
     loop {
-        let result = read_line(">").map(|line| vm::interpret(&line));
+        let result = read_line(">").map(|line| vm::interpret(&line, &mut globals));
 
         if result.is_err() {
             eprintln!("{}", result.err().unwrap());
@@ -57,7 +59,8 @@ fn run_file(path: &str) {
         }
     };
 
-    match vm::interpret(&source) {
+    let mut globals = HashMap::new();
+    match vm::interpret(&source, &mut globals) {
         Ok(_) => {}
         Err(InterpretError::Compile) => process::exit(65),
         Err(InterpretError::Runtime) => process::exit(70),

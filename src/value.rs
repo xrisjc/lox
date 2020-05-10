@@ -12,6 +12,12 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn new_string(s: &str) -> Value {
+        let s = String::from(s);
+        let s = Obj::new_string(s);
+        Value::Obj(s)
+    }
+
     pub fn is_number(&self) -> bool {
         match self {
             Value::Number(_) => true,
@@ -34,6 +40,17 @@ impl Value {
         };
         Value::Bool(result)
     }
+
+    pub fn as_obj(&self) -> Option<&Rc<Obj>> {
+        match self {
+            Value::Obj(obj) => Some(obj),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        self.as_obj().and_then(|obj| obj.as_str())
+    }
 }
 
 impl Clone for Value {
@@ -51,7 +68,7 @@ impl Clone for Value {
 }
 
 impl fmt::Display for Value {
-    fn fmt (&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Bool(x) => write!(f, "{}", x),
             Value::Nil => write!(f, "nil"),

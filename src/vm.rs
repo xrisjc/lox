@@ -4,6 +4,7 @@ use crate::object::Obj;
 use crate::op::*;
 use crate::value::Value;
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
@@ -14,13 +15,13 @@ pub enum InterpretError {
     Runtime,
 }
 
-impl Error for InterpretError { }
+impl Error for InterpretError {}
 
 impl fmt::Display for InterpretError {
-    fn fmt (&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            InterpretError::Compile => write!(f, "compile failed"), 
-            InterpretError::Runtime => write!(f, "runtime error"), 
+            InterpretError::Compile => write!(f, "compile failed"),
+            InterpretError::Runtime => write!(f, "runtime error"),
         }
     }
 }
@@ -36,9 +37,7 @@ struct ValueStack {
 
 impl ValueStack {
     pub fn new() -> ValueStack {
-        ValueStack {
-            stack: Vec::new(),
-        }
+        ValueStack { stack: Vec::new() }
     }
 
     pub fn peek(&self, distance: usize) -> &Value {
@@ -66,7 +65,7 @@ impl ValueStack {
         self.stack.push(Value::Bool(x));
     }
 
-    pub fn pop(&mut self) -> Result<Value, InterpretError>  {
+    pub fn pop(&mut self) -> Result<Value, InterpretError> {
         match self.stack.pop() {
             Some(x) => Ok(x),
             None => runtime_error("stack underflow"),
@@ -98,10 +97,10 @@ impl ValueStack {
     }
 }
 
-pub fn interpret(source: &str) -> Result<(), InterpretError> {
+pub fn interpret(source: &str, globals: &mut HashMap<String, Value>) -> Result<(), InterpretError> {
     let mut chunk = Chunk::new();
     if compiler::compile(source, &mut chunk) {
-        run(&chunk)
+        run(&chunk, globals)
     } else {
         Err(InterpretError::Compile)
     }
@@ -115,7 +114,23 @@ macro_rules! read_byte {
     }};
 }
 
-fn run(chunk: &Chunk) -> Result<(), InterpretError> {
+macro_rules! read_constant {
+    ($code:expr, $ip:expr, $constants:expr) => {{
+        let constant_offset = read_byte!($code, $ip) as usize;
+        &$constants[constant_offset]
+    }};
+}
+
+macro_rules! read_string {
+    ($code:expr, $ip:expr, $constants:expr) => {{
+        read_constant!($code, $ip, $constants)
+            .as_str()
+            .expect("expected string constant for a global variable")
+            .to_owned()
+    }};
+}
+
+fn run(chunk: &Chunk, globals: &mut HashMap<String, Value>) -> Result<(), InterpretError> {
     if chunk.code.len() == 0 {
         return Ok(());
     }
@@ -133,8 +148,7 @@ fn run(chunk: &Chunk) -> Result<(), InterpretError> {
 
         match op {
             OP_CONSTANT => {
-                let constant_offset = read_byte!(chunk.code, ip) as usize;
-                let constant = &chunk.constants[constant_offset];
+                let constant = read_constant!(chunk.code, ip, chunk.constants);
                 let constant = constant.clone();
                 if let Value::Obj(obj) = &constant {
                     objects.push(Rc::clone(obj));
@@ -145,6 +159,40 @@ fn run(chunk: &Chunk) -> Result<(), InterpretError> {
             OP_NIL => stack.push(Value::Nil),
             OP_TRUE => stack.push(Value::Bool(true)),
             OP_FALSE => stack.push(Value::Bool(false)),
+
+            OP_POP => {
+                stack.pop()?;
+            }
+
+            OP_GET_GLOBAL => {
+                let key = read_string!(chunk.code, ip, chunk.constants);
+                match globals.get(&key) {
+                    Some(value) => stack.push(value.clone()),
+                    None => {
+                        let message = format!("Undefined variable '{}'.", key);
+                        return runtime_error(&message);
+                    }
+                }
+            }
+
+            OP_DEFINE_GLOBAL => {
+                let key = read_string!(chunk.code, ip, chunk.constants);
+                let value = stack.peek(0).clone();
+                globals.insert(key, value);
+
+                stack.pop()?;
+            }
+
+            OP_SET_GLOBAL => {
+                let key = read_string!(chunk.code, ip, chunk.constants);
+                if globals.contains_key(&key) {
+                    let value = stack.peek(0).clone();
+                    globals.insert(key, value);
+                } else {
+                    let message = format!("Undefined variable '{}'.", key);
+                    return runtime_error(&message);   
+                }
+            }
 
             OP_EQUAL => {
                 let b = stack.pop()?;
@@ -157,17 +205,19 @@ fn run(chunk: &Chunk) -> Result<(), InterpretError> {
                 let a = stack.pop_f64()?;
                 stack.push_bool(a > b);
             }
+
             OP_LESS if stack.is_number(0) && stack.is_number(1) => {
                 let b = stack.pop_f64()?;
                 let a = stack.pop_f64()?;
                 stack.push_bool(a < b);
             }
+
             OP_ADD if stack.is_string(0) && stack.is_string(1) => {
                 let b = stack.pop_obj()?;
                 let a = stack.pop_obj()?;
 
-                let mut s = String::from(a.as_str());
-                s.push_str(b.as_str());
+                let mut s = a.as_str().unwrap().to_owned();
+                s.push_str(b.as_str().unwrap());
 
                 let s = Obj::new_string(s);
                 objects.push(Rc::clone(&s));
@@ -175,21 +225,25 @@ fn run(chunk: &Chunk) -> Result<(), InterpretError> {
 
                 stack.push(value);
             }
+
             OP_ADD if stack.is_number(0) && stack.is_number(1) => {
                 let b = stack.pop_f64()?;
                 let a = stack.pop_f64()?;
                 stack.push_f64(a + b);
             }
+
             OP_SUBTRACT if stack.is_number(0) && stack.is_number(1) => {
                 let b = stack.pop_f64()?;
                 let a = stack.pop_f64()?;
                 stack.push_f64(a - b);
             }
+
             OP_MULTIPLY if stack.is_number(0) && stack.is_number(1) => {
                 let b = stack.pop_f64()?;
                 let a = stack.pop_f64()?;
                 stack.push_f64(a * b);
             }
+
             OP_DIVIDE if stack.is_number(0) && stack.is_number(1) => {
                 let b = stack.pop_f64()?;
                 let a = stack.pop_f64()?;
@@ -210,16 +264,23 @@ fn run(chunk: &Chunk) -> Result<(), InterpretError> {
                 let a = stack.pop_f64()?;
                 stack.push_f64(-a);
             }
+
             OP_NEGATE => {
                 let msg = format!("[line {}] operand must be a number", line);
                 return runtime_error(&msg);
             }
 
-            OP_RETURN => {
+            OP_PRINT => {
                 let value = stack.pop()?;
                 println!("{}", value);
-                return Ok(());
             }
+
+            OP_RETURN => {
+                return Ok(());
+                // let value = stack.pop()?;
+                // println!("{}", value);
+            }
+
             _ => {
                 return runtime_error("unknown op");
             }

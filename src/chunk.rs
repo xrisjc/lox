@@ -16,21 +16,27 @@ impl Chunk {
         }
     }
 
+    pub fn add_constant(&mut self, value: Value) -> Result<u8, String> {
+        if self.constants.len() < std::u8::MAX as usize {
+            self.constants.push(value);
+            let index = self.constants.len() as u8 - 1;
+            Ok(index)
+        } else {
+            let message = String::from("Too many constants in one chunk.");
+            Err(message)
+        }
+    }
+
     pub fn emit(&mut self, byte: u8, line: usize) {
         self.code.push(byte);
         self.lines.push(line);
     }
 
-    pub fn emit_constant(&mut self, value: Value, line: usize) -> bool {
-        if self.constants.len() < std::u8::MAX as usize {
-            self.constants.push(value);
-            self.emit(OP_CONSTANT, line);
-            self.emit(self.constants.len() as u8 - 1, line);
-
-            true
-        } else {
-            false
-        }
+    pub fn emit_constant(&mut self, value: Value, line: usize) -> Result<u8, String> {
+        let index = self.add_constant(value)?;
+        self.emit(OP_CONSTANT, line);
+        self.emit(index, line);
+        Ok(index)
     }
 
     pub fn disassemble(&self, name: &str) {
@@ -54,6 +60,10 @@ impl Chunk {
             OP_NIL => simple_instruction("OP_NIL", offset),
             OP_TRUE => simple_instruction("OP_TRUE", offset),
             OP_FALSE => simple_instruction("OP_FALSE", offset),
+            OP_POP => simple_instruction("OP_POP", offset),
+            OP_GET_GLOBAL => self.constant_instruction("OP_GET_GLOBAL", offset),
+            OP_DEFINE_GLOBAL => self.constant_instruction("OP_DEFINE_GLOBAL", offset),
+            OP_SET_GLOBAL => self.constant_instruction("OP_SET_GLOBAL", offset),
             OP_EQUAL => simple_instruction("OP_EQUAL", offset),
             OP_GREATER => simple_instruction("OP_GREATER", offset),
             OP_LESS => simple_instruction("OP_LESS", offset),
@@ -63,6 +73,7 @@ impl Chunk {
             OP_DIVIDE => simple_instruction("OP_DIVIDE", offset),
             OP_NOT => simple_instruction("OP_NOT", offset),
             OP_NEGATE => simple_instruction("OP_NEGATE", offset),
+            OP_PRINT => simple_instruction("OP_PRINT", offset),
             OP_RETURN => simple_instruction("OP_RETURN", offset),
             instruction => {
                 println!("Unknown opcode: {}", instruction);

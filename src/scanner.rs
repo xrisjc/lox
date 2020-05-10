@@ -60,31 +60,13 @@ pub struct Token {
     pub line: usize,
 }
 
-impl Token {
-    pub fn error(&self, message: &str) {
-        eprint!("[line {}] Error", self.line);
-
-        match self.tag {
-            TokenTag::Eof => eprint!(" at end"),
-            TokenTag::Error => { },
-            _ => eprint!(" at '{}'", self.lexeme),
-        }
-
-        eprintln!(": {}", message);
-    }
-}
-
-
 fn is_alpha(c: char) -> bool {
-    (c >= 'a' && c <= 'z') ||
-    (c >= 'A' && c <= 'Z') ||
-    c == '_'
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 }
 
 fn is_digit(c: char) -> bool {
     c >= '0' && c <= '9'
 }
-
 
 pub struct Scanner<'a> {
     itr: Peekable<Chars<'a>>,
@@ -111,7 +93,11 @@ impl<'a> Scanner<'a> {
     }
 
     fn make_token(&self, tag: TokenTag, lexeme: String) -> Token {
-        Token { tag: tag, lexeme: lexeme, line: self.line }
+        Token {
+            tag: tag,
+            lexeme: lexeme,
+            line: self.line,
+        }
     }
 
     fn make_token_str(&self, tag: TokenTag, lexeme: &str) -> Token {
@@ -172,7 +158,9 @@ impl<'a> Scanner<'a> {
         // Handle identifiers and keywords.
         if self.current.map_or(false, |c| is_alpha(c)) {
             let mut s = String::new();
-            while self.current.map_or(false, |c| is_alpha(c) || self.current.map_or(false, |c| is_digit(c))) {
+            while self.current.map_or(false, |c| {
+                is_alpha(c) || self.current.map_or(false, |c| is_digit(c))
+            }) {
                 s.push(self.current.unwrap());
                 self.advance();
             }
@@ -210,10 +198,11 @@ impl<'a> Scanner<'a> {
             }
 
             // Look for fractional part.
-            if self.current.map_or(false, |c| c == '.') && self.next.map_or(false, |c| is_digit(c)) {
+            if self.current.map_or(false, |c| c == '.') && self.next.map_or(false, |c| is_digit(c))
+            {
                 s.push(self.current.unwrap());
                 self.advance();
-                
+
                 while self.current.map_or(false, |c| is_digit(c)) {
                     s.push(self.current.unwrap());
                     self.advance();

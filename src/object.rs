@@ -13,15 +13,15 @@ impl ObjValue {
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> Option<&str> {
         match self {
-            ObjValue::String(s) => &s,
+            ObjValue::String(s) => Some(&s),
         }
     }
 }
 
 impl fmt::Display for ObjValue {
-    fn fmt (&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ObjValue::String(x) => write!(f, "{}", x),
         }
@@ -39,12 +39,12 @@ impl Obj {
         let obj = Obj { value };
         Rc::new(obj)
     }
-    
+
     pub fn is_string(&self) -> bool {
         self.value.is_string()
     }
 
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> Option<&str> {
         self.value.as_str()
     }
 }
@@ -55,7 +55,7 @@ impl PartialEq for Obj {
     }
 }
 impl fmt::Display for Obj {
-    fn fmt (&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.value)
     }
 }
