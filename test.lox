@@ -1,0 +1,17 @@
+// Test
+
+print 123; print 123.5; print true; print false; print "hello world"; print nil;
+
+print 1.5 + 2.5;
+print "hello" + ", world";
+
+print 1 == 1; print 1 != 2;
+print 1 < 2; print 2 > 1;
+print 1 <= 2; print 2 >= 1;
+
+
+var breakfast = "beignets";
+var beverage = "cafe au lait";
+breakfast = "beignets with " + beverage;
+
+print breakfast;

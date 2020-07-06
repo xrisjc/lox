@@ -65,6 +65,11 @@ impl ValueStack {
         self.stack.push(Value::Bool(x));
     }
 
+    pub fn push_offset(&mut self, offset: usize) {
+        let value = self.stack[offset].clone();
+        self.push(value);
+    }
+
     pub fn pop(&mut self) -> Result<Value, InterpretError> {
         match self.stack.pop() {
             Some(x) => Ok(x),
@@ -86,6 +91,12 @@ impl ValueStack {
             None => runtime_error("stack underflow"),
             _ => runtime_error("pop_obj called on non-obj"),
         }
+    }
+
+    pub fn dup_to(&mut self, offset: usize) {
+        let top_offset = self.stack.len() - 1;
+        let top_value = self.stack[top_offset].clone();
+        self.stack[offset] = top_value;
     }
 
     pub fn print(&self) {
@@ -162,6 +173,16 @@ fn run(chunk: &Chunk, globals: &mut HashMap<String, Value>) -> Result<(), Interp
 
             OP_POP => {
                 stack.pop()?;
+            }
+
+            OP_GET_LOCAL => {
+                let slot = read_byte!(chunk.code, ip);
+                stack.push_offset(slot as usize);
+            }
+
+            OP_SET_LOCAL => {
+                let slot = read_byte!(chunk.code, ip);
+                stack.dup_to(slot as usize);
             }
 
             OP_GET_GLOBAL => {

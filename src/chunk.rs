@@ -1,6 +1,10 @@
 use crate::op::*;
 use crate::value::Value;
 
+// Maximum number of constants allowed in a chunk.  A constant index must fit
+// in a byte.
+const MAX_CONSTANTS: usize = std::u8::MAX as usize;
+
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: Vec<Value>,
@@ -16,8 +20,10 @@ impl Chunk {
         }
     }
 
+    /// Adds a value to the chunk's constant table.  Returns the value's index
+    /// in the constant table.
     pub fn add_constant(&mut self, value: Value) -> Result<u8, String> {
-        if self.constants.len() < std::u8::MAX as usize {
+        if self.constants.len() < MAX_CONSTANTS {
             self.constants.push(value);
             let index = self.constants.len() as u8 - 1;
             Ok(index)
@@ -61,6 +67,8 @@ impl Chunk {
             OP_TRUE => simple_instruction("OP_TRUE", offset),
             OP_FALSE => simple_instruction("OP_FALSE", offset),
             OP_POP => simple_instruction("OP_POP", offset),
+            OP_GET_LOCAL => self.byte_instruction("OP_GET_LOCAL", offset),
+            OP_SET_LOCAL => self.byte_instruction("OP_SET_LOCAL", offset),
             OP_GET_GLOBAL => self.constant_instruction("OP_GET_GLOBAL", offset),
             OP_DEFINE_GLOBAL => self.constant_instruction("OP_DEFINE_GLOBAL", offset),
             OP_SET_GLOBAL => self.constant_instruction("OP_SET_GLOBAL", offset),
@@ -80,6 +88,12 @@ impl Chunk {
                 offset + 1
             }
         }
+    }
+
+    fn byte_instruction(&self, name: &str, offset: usize) -> usize {
+        let slot = self.code[offset + 1];
+        println!("{:16} {:04}", name, slot);
+        offset + 2
     }
 
     fn constant_instruction(&self, name: &str, offset: usize) -> usize {

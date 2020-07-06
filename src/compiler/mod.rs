@@ -1,7 +1,11 @@
-use std::error::Error;
-use std::fmt;
+#![allow(dead_code)]
+
+mod error;
+mod locals;
+
 use std::mem;
 use std::rc::Rc;
+
 
 use crate::chunk::Chunk;
 use crate::op::*;
@@ -10,10 +14,12 @@ use crate::scanner::{Scanner, Token, TokenTag};
 use crate::value::Value;
 
 use Precedence::*;
+use locals::Local;
+use error::*;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Precedence {
-    None,
+    Base,
     Assignment,
     //Or,
     //And,
@@ -34,45 +40,21 @@ fn precedence_of(token: &Token) -> Precedence {
         Slash | Star => Factor,
         BangEqual | EqualEqual => Equality,
         Greater | GreaterEqual | Less | LessEqual => Comparison,
-        _ => None,
+        _ => Base,
     }
 }
 
-#[derive(Debug)]
-struct ParseError {
-    token: Rc<Token>,
-    message: String,
-}
-
-fn parse_error<T>(token: &Rc<Token>, message: &str) -> Result<T, ParseError> {
-    let token = Rc::clone(token);
-    let message = String::from(message);
-    Err(ParseError { token, message })
-}
-
-impl Error for ParseError {}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[line {}] Error", self.token.line)?;
-
-        match self.token.tag {
-            TokenTag::Eof => write!(f, " at end")?,
-            TokenTag::Error => {}
-            _ => write!(f, " at '{}'", self.token.lexeme)?,
-        }
-
-        write!(f, ": {}", self.message)?;
-
-        Ok(())
-    }
-}
+type ParseResult = Result<(), ParseError>;
 
 struct Parser<'a> {
     scanner: Scanner<'a>,
     current: Rc<Token>,
     previous: Rc<Token>,
+    locals: Vec<Local>,
+    scope_depth: i32,
 }
+
+const MAX_LOCALS: usize = 255;
 
 impl<'a> Parser<'a> {
     fn new(source: &str) -> Parser {
@@ -87,10 +69,25 @@ impl<'a> Parser<'a> {
             scanner: Scanner::new(source),
             current: Rc::clone(&token),
             previous: Rc::clone(&token),
+            locals: Vec::with_capacity(MAX_LOCALS),
+            scope_depth: 0,
         }
     }
 
-    fn advance(&mut self) -> Result<(), ParseError> {
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self, chunk: &mut Chunk) {
+        self.scope_depth -= 1;
+
+        while self.locals.len() > 0 && self.locals[self.locals.len()-1].depth > self.scope_depth {
+            chunk.emit(OP_POP, self.previous.line);
+            self.locals.pop();
+        }
+    }
+
+    fn advance(&mut self) -> ParseResult {
         let token = self.scanner.next_token();
         let token = Rc::new(token);
         if token.tag == Error {
@@ -113,7 +110,7 @@ impl<'a> Parser<'a> {
         return Ok(true);
     }
 
-    fn consume(&mut self, tag: TokenTag, msg: &str) -> Result<(), ParseError> {
+    fn consume(&mut self, tag: TokenTag, msg: &str) -> ParseResult {
         if self.current.tag == tag {
             self.advance()
         } else {
@@ -121,7 +118,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn prefix_rule(&mut self, chunk: &mut Chunk, can_assign: bool) -> Result<(), ParseError> {
+    fn prefix_rule(&mut self, chunk: &mut Chunk, can_assign: bool) -> ParseResult {
         match self.previous.tag {
             False => {
                 chunk.emit(OP_FALSE, self.previous.line);
@@ -180,7 +177,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn infix_rule(&mut self, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn infix_rule(&mut self, chunk: &mut Chunk) -> ParseResult {
         let line = self.previous.line;
 
         match self.previous.tag {
@@ -239,7 +236,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse(&mut self, precedence: Precedence, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn parse(&mut self, precedence: Precedence, chunk: &mut Chunk) -> ParseResult {
         self.advance()?;
 
         let can_assign = precedence <= Precedence::Assignment;
@@ -257,11 +254,11 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn expression(&mut self, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn expression(&mut self, chunk: &mut Chunk) -> ParseResult {
         self.parse(Precedence::Assignment, chunk)
     }
 
-    fn declaration(&mut self, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn declaration(&mut self, chunk: &mut Chunk) -> ParseResult {
         if self.matches(Var)? {
             self.var_declaration(chunk)
         } else {
@@ -269,27 +266,30 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_variable(&mut self, chunk: &mut Chunk, error_message: &str) -> Result<u8, ParseError> {
-        self.consume(Identifier, error_message)?;
-        identifier_constant(chunk, &self.previous)
-    }
+    fn named_variable(&mut self, chunk: &mut Chunk, token: &Rc<Token>, can_assign: bool) -> ParseResult {
 
-    fn named_variable(&mut self, chunk: &mut Chunk, token: &Rc<Token>, can_assign: bool) -> Result<(), ParseError> {
-        let arg = identifier_constant(chunk, token)?;
+        let kind = if let Some(arg) = self.resolve_local(token)? {
+            (arg, OP_GET_LOCAL, OP_SET_LOCAL)
+        } else {
+            let arg = identifier_constant(chunk, token)?;
+            (arg, OP_GET_GLOBAL, OP_SET_GLOBAL)
+        };
+
+        let (arg, get_op, set_op) = kind;
 
         if can_assign && self.matches(Equal)? {
             self.expression(chunk)?;
-            chunk.emit(OP_SET_GLOBAL, token.line);
+            chunk.emit(set_op, token.line);
             chunk.emit(arg, token.line);
         } else {
-            chunk.emit(OP_GET_GLOBAL, token.line);
+            chunk.emit(get_op, token.line);
             chunk.emit(arg, token.line);
         }
 
         Ok(())
     }
 
-    fn var_declaration(&mut self, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn var_declaration(&mut self, chunk: &mut Chunk) -> ParseResult {
         let global = self.parse_variable(chunk, "Expected variable name")?;
 
         let line = self.previous.line;
@@ -302,9 +302,76 @@ impl<'a> Parser<'a> {
 
         self.consume(Semicolon, "Expected ';' after variable declaration.")?;
 
-        define_variable(chunk, line, global);
+        self.define_variable(chunk, line, global);
 
         Ok(())
+    }
+
+    fn define_variable(&mut self, chunk: &mut Chunk, line: usize, global: u8) {
+        if self.scope_depth == 0 {
+            chunk.emit(OP_DEFINE_GLOBAL, line);
+            chunk.emit(global, line);
+        } else if self.scope_depth > 0 {
+            self.mark_initialized();
+        }
+    }
+
+    fn parse_variable(&mut self, chunk: &mut Chunk, error_message: &str) -> Result<u8, ParseError> {
+        self.consume(Identifier, error_message)?;
+
+        self.declare_variable()?;
+        if self.scope_depth > 0 {
+            Ok(0)
+        } else {
+            identifier_constant(chunk, &self.previous)
+        }
+    }
+
+    fn mark_initialized(&mut self) {
+        let last_offset = self.locals.len() - 1;
+        self.locals[last_offset].depth = self.scope_depth;
+    }
+
+    fn declare_variable(&mut self) -> ParseResult {
+        if self.scope_depth >= 0 {
+            let name = Rc::clone(&self.previous);
+            self.add_local(&name)?;
+        }
+
+        Ok(())
+    }
+
+    fn add_local(&mut self, name: &Rc<Token>) -> ParseResult {
+        if self.locals.len() >= MAX_LOCALS {
+            return parse_error(name, "Exceeded maximum number of local variables.");
+        }
+
+        for local in self.locals.iter().rev() {
+            if local.depth == -1 && local.depth < self.scope_depth {
+                break;
+            }
+
+            if name.lexeme == local.name.lexeme {
+                return parse_error(name, "Variable with this name already declared in this scope.");
+            }
+        }
+
+        let local = Local::new(name);
+        self.locals.push(local);
+        Ok(())
+    }
+
+    fn resolve_local(&mut self, name: &Rc<Token>) -> Result<Option<u8>, ParseError> {
+        for (i, local) in self.locals.iter().enumerate().rev() {
+            if local.name.lexeme == name.lexeme {
+                if local.depth == -1 {
+                    return parse_error(name, "Cannot read local variable in its own initializer.");
+                }
+                return Ok(Some(i as u8));
+            }
+        }
+
+        return Ok(None);
     }
 
     fn synchronize(&mut self) {
@@ -327,15 +394,28 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn statement(&mut self, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn statement(&mut self, chunk: &mut Chunk) -> ParseResult {
         if self.matches(Print)? {
             self.print_statement(chunk)
+        } else if self.matches(LeftBrace)? {
+            self.begin_scope();
+            self.block(chunk)?;
+            self.end_scope(chunk);
+            Ok(())
         } else {
             self.expression_statement(chunk)
         }
     }
 
-    fn print_statement(&mut self, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn block(&mut self, chunk: &mut Chunk) -> ParseResult {
+        while !self.check(RightBrace) && !self.check(Eof) {
+            self.declaration(chunk)?;
+        }
+        self.consume(RightBrace, "Expected '}' after block.")?;
+        Ok(())
+    }
+
+    fn print_statement(&mut self, chunk: &mut Chunk) -> ParseResult {
         let line = self.previous.line;
 
         self.expression(chunk)?;
@@ -345,7 +425,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn expression_statement(&mut self, chunk: &mut Chunk) -> Result<(), ParseError> {
+    fn expression_statement(&mut self, chunk: &mut Chunk) -> ParseResult {
         let line = self.previous.line;
 
         self.expression(chunk)?;
@@ -356,11 +436,8 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn define_variable(chunk: &mut Chunk, line: usize, global: u8) {
-    chunk.emit(OP_DEFINE_GLOBAL, line);
-    chunk.emit(global, line);
-}
-
+/// Adds the token's lexeme to the chunk's constant table.  Returns the index
+/// in the constant table.
 fn identifier_constant(chunk: &mut Chunk, token: &Rc<Token>) -> Result<u8, ParseError> {
     let constant = Value::new_string(&token.lexeme);
     chunk
