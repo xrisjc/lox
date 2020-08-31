@@ -117,17 +117,26 @@ pub fn interpret(source: &str, globals: &mut HashMap<String, Value>) -> Result<(
     }
 }
 
-macro_rules! read_byte {
+macro_rules! read_u8 {
     ($code:expr, $ip:expr) => {{
-        let byte = $code[$ip];
+        let result = $code[$ip];
         $ip += 1;
-        byte
+        result
+    }};
+}
+
+macro_rules! read_u16 {
+    ($code:expr, $ip:expr) => {{
+        let high = $code[$ip] as u16;
+        let low = $code[$ip + 1] as u16;
+        $ip += 2;
+        (high << 8) | low
     }};
 }
 
 macro_rules! read_constant {
     ($code:expr, $ip:expr, $constants:expr) => {{
-        let constant_offset = read_byte!($code, $ip) as usize;
+        let constant_offset = read_u8!($code, $ip) as usize;
         &$constants[constant_offset]
     }};
 }
@@ -151,11 +160,11 @@ fn run(chunk: &Chunk, globals: &mut HashMap<String, Value>) -> Result<(), Interp
     let mut objects = Vec::new();
 
     loop {
-        stack.print();
-        chunk.disassemble_instruction(ip);
+        //stack.print();
+        //chunk.disassemble_instruction(ip);
 
         let line = chunk.lines[ip];
-        let op = read_byte!(chunk.code, ip);
+        let op = read_u8!(chunk.code, ip);
 
         match op {
             OP_CONSTANT => {
@@ -176,12 +185,12 @@ fn run(chunk: &Chunk, globals: &mut HashMap<String, Value>) -> Result<(), Interp
             }
 
             OP_GET_LOCAL => {
-                let slot = read_byte!(chunk.code, ip);
+                let slot = read_u8!(chunk.code, ip);
                 stack.push_offset(slot as usize);
             }
 
             OP_SET_LOCAL => {
-                let slot = read_byte!(chunk.code, ip);
+                let slot = read_u8!(chunk.code, ip);
                 stack.dup_to(slot as usize);
             }
 
@@ -294,6 +303,14 @@ fn run(chunk: &Chunk, globals: &mut HashMap<String, Value>) -> Result<(), Interp
             OP_PRINT => {
                 let value = stack.pop()?;
                 println!("{}", value);
+            }
+
+            OP_JUMP_IF_FALSE => {
+                let offset = read_u16!(chunk.code, ip) as usize;
+
+                if stack.peek(0).is_falsey_rust() {
+                    ip += offset;
+                }
             }
 
             OP_RETURN => {

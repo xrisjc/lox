@@ -333,7 +333,7 @@ impl<'a> Parser<'a> {
     }
 
     fn declare_variable(&mut self) -> ParseResult {
-        if self.scope_depth >= 0 {
+        if self.scope_depth > 0 {
             let name = Rc::clone(&self.previous);
             self.add_local(&name)?;
         }
@@ -397,6 +397,8 @@ impl<'a> Parser<'a> {
     fn statement(&mut self, chunk: &mut Chunk) -> ParseResult {
         if self.matches(Print)? {
             self.print_statement(chunk)
+        } else if self.matches(If)? {
+            self.if_statement(chunk)
         } else if self.matches(LeftBrace)? {
             self.begin_scope();
             self.block(chunk)?;
@@ -431,6 +433,28 @@ impl<'a> Parser<'a> {
         self.expression(chunk)?;
         self.consume(Semicolon, "Expect ';' after value.")?;
         chunk.emit(OP_POP, line);
+
+        Ok(())
+    }
+
+    fn if_statement(&mut self, chunk: &mut Chunk) -> ParseResult {
+        let if_token = Rc::clone(&self.previous);
+        let line = self.previous.line;
+
+        self.consume(LeftParen, "Expect '(' after 'if'.")?;
+        self.expression(chunk)?;
+        self.consume(RightParen, "Expect ')' after condition.")?;
+
+        let then_jump = chunk.emit_jump(OP_JUMP_IF_FALSE, line);
+        self.statement(chunk)?;
+        
+        chunk
+            .patch_jump(then_jump)
+            .or_else(|e| parse_error(&if_token, &e))?;
+
+        if self.matches(Else)? {
+            self.statement(chunk)?;
+        }
 
         Ok(())
     }

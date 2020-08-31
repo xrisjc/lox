@@ -18,4 +18,5 @@ pub const OP_DIVIDE: u8 = 16;
 pub const OP_NOT: u8 = 17;
 pub const OP_NEGATE: u8 = 18;
 pub const OP_PRINT: u8 = 19;
-pub const OP_RETURN: u8 = 20;
+pub const OP_JUMP_IF_FALSE: u8 = 20;
+pub const OP_RETURN: u8 = 21;

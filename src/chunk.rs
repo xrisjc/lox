@@ -45,6 +45,30 @@ impl Chunk {
         Ok(index)
     }
 
+    pub fn emit_jump(&mut self, instruction: u8, line: usize) -> usize {
+        self.emit(instruction, line);
+        self.emit(0xff, line);
+        self.emit(0xff, line);
+        
+        self.code.len() - 2
+    }
+
+
+    pub fn patch_jump(&mut self, offset: usize) -> Result<(), String> {
+        // -2 to adjust for the bytecode for the jump offset itself.
+        let jump = self.code.len() - offset - 2;
+        let max_jump = std::u16::MAX as usize;
+
+        if jump > max_jump {
+            return Err(String::from("Too much code to jump over."));
+        }
+
+        self.code[offset] = ((jump >> 8) & 0xff) as u8;
+        self.code[offset + 1] = (jump & 0xff) as u8;
+
+        Ok(())
+    }
+
     pub fn disassemble(&self, name: &str) {
         println!("== {} ==", name);
 

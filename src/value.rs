@@ -32,13 +32,16 @@ impl Value {
         }
     }
 
-    pub fn is_falsey(&self) -> Value {
-        let result = match self {
+    pub fn is_falsey_rust(&self) -> bool {
+        match self {
             Value::Bool(x) => !x,
             Value::Nil => true,
             _ => false,
-        };
-        Value::Bool(result)
+        }
+    }
+
+    pub fn is_falsey(&self) -> Value {
+        Value::Bool(self.is_falsey_rust())
     }
 
     pub fn as_obj(&self) -> Option<&Rc<Obj>> {

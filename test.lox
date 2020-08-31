@@ -15,3 +15,22 @@ var beverage = "cafe au lait";
 breakfast = "beignets with " + beverage;
 
 print breakfast;
+{
+    var localVariable = "a local variable";
+    {
+        var evenMoreLocalVariable = "an even more local variable";
+        print localVariable;
+        print evenMoreLocalVariable;
+
+        {
+            var x = -1;
+
+            if (x > 0) print "x is positive";
+
+            if (x < 0) print "x is negative";
+
+            if (x == 0) print "x is zero";
+        }
+    }
+}
+
