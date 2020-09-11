@@ -106,6 +106,8 @@ impl Chunk {
             OP_NOT => simple_instruction("OP_NOT", offset),
             OP_NEGATE => simple_instruction("OP_NEGATE", offset),
             OP_PRINT => simple_instruction("OP_PRINT", offset),
+            OP_JUMP => self.jump_instruction("OP_JUMP", 1, offset),
+            OP_JUMP_IF_FALSE => self.jump_instruction("OP_JUMP_IF_FALSE", 1, offset),
             OP_RETURN => simple_instruction("OP_RETURN", offset),
             instruction => {
                 println!("Unknown opcode: {}", instruction);
@@ -118,6 +120,15 @@ impl Chunk {
         let slot = self.code[offset + 1];
         println!("{:16} {:04}", name, slot);
         offset + 2
+    }
+
+    fn jump_instruction(&self, name: &str, sign: i32, offset: usize) -> usize {
+        let hi = self.code[offset + 1] as usize;
+        let lo = self.code[offset + 2] as usize;
+        let jump = (hi << 8) | lo;
+        let jump = if sign < 0 { offset + 3 + jump } else { offset + 3 - jump };
+        println!("{:16} {:04} {}", name, offset, jump);
+        offset + 3
     }
 
     fn constant_instruction(&self, name: &str, offset: usize) -> usize {

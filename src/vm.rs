@@ -305,6 +305,11 @@ fn run(chunk: &Chunk, globals: &mut HashMap<String, Value>) -> Result<(), Interp
                 println!("{}", value);
             }
 
+            OP_JUMP => {
+                let offset = read_u16!(chunk.code, ip) as usize;
+                ip += offset;
+            }
+
             OP_JUMP_IF_FALSE => {
                 let offset = read_u16!(chunk.code, ip) as usize;
 

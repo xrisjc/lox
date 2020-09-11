@@ -446,15 +446,26 @@ impl<'a> Parser<'a> {
         self.consume(RightParen, "Expect ')' after condition.")?;
 
         let then_jump = chunk.emit_jump(OP_JUMP_IF_FALSE, line);
+        let line = self.current.line;
+        chunk.emit(OP_POP, line);
         self.statement(chunk)?;
+
+        let line = self.current.line;
+        let else_jump = chunk.emit_jump(OP_JUMP, line);
         
         chunk
             .patch_jump(then_jump)
             .or_else(|e| parse_error(&if_token, &e))?;
 
+        chunk.emit(OP_POP, line);
+
         if self.matches(Else)? {
             self.statement(chunk)?;
         }
+
+        chunk
+            .patch_jump(else_jump)
+            .or_else(|e| parse_error(&if_token, &e))?;
 
         Ok(())
     }
